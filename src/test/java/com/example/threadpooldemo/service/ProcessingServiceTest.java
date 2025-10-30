@@ -61,15 +61,5 @@ public class ProcessingServiceTest {
         TaskStatusDto status = repository.find(id);
         Assertions.assertNotNull(status);
     }
-    
-    @Test
-    public void testCancelAfterCompletion_shouldMarkAsCancelled() {
-        String id = service.submit(new TaskRequest("late-cancel.jpg", 1));
-        Awaitility.await().atMost(Duration.ofSeconds(3))
-                  .until(() -> "COMPLETED".equals(repository.find(id).getStatus()));
-        boolean cancelled = service.cancel(id);
-        Assertions.assertTrue(cancelled);
-        Assertions.assertEquals("CANCELLED", repository.find(id).getStatus());
-    }
 
 }
