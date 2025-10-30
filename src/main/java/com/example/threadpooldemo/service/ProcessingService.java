@@ -1,0 +1,75 @@
+package com.example.threadpooldemo.service;
+
+import com.example.threadpooldemo.dto.TaskStatusDto;
+import com.example.threadpooldemo.model.TaskRequest;
+import com.example.threadpooldemo.processor.ImageProcessorTask;
+import com.example.threadpooldemo.repository.TaskRepository;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class ProcessingService {
+    private static final Logger logger = LoggerFactory.getLogger(ProcessingService.class);
+
+    private final ThreadPoolExecutor executor;
+    private final TaskRepository repository;
+    private final Map<String, ImageProcessorTask> runningTasks = new ConcurrentHashMap<>();
+    private final AtomicInteger idGenerator = new AtomicInteger(0);
+
+    public ProcessingService(ThreadPoolExecutor executor, TaskRepository repository) {
+        this.executor = executor;
+        this.repository = repository;
+    }
+
+    @PostConstruct
+    public void init() {
+        logger.info("ProcessingService initialized with core={} max={} queue={}",
+                executor.getCorePoolSize(), executor.getMaximumPoolSize(), executor.getQueue().size());
+    }
+
+    public String submit(TaskRequest request) {
+        String id = String.valueOf(idGenerator.incrementAndGet());
+        TaskStatusDto dto = new TaskStatusDto(id, request.getFileName(), "QUEUED", null);
+        repository.save(dto);
+
+        ImageProcessorTask task = new ImageProcessorTask(id, request.getFileName(), Math.max(1, request.getComplexity()), repository);
+        runningTasks.put(id, task);
+        try {
+            executor.execute(task);
+            logger.info("Submitted task id={} file={} to executor", id, request.getFileName());
+        } catch (Exception e) {
+            repository.updateStatus(id, "REJECTED", null);
+            runningTasks.remove(id);
+            logger.error("Failed to submit task {}: {}", id, e.getMessage(), e);
+            throw e;
+        }
+        return id;
+    }
+
+    public Optional<TaskStatusDto> getStatus(String id) {
+        return Optional.ofNullable(repository.find(id));
+    }
+
+    public Collection<TaskStatusDto> listAll() {
+        return repository.findAll();
+    }
+
+    public boolean cancel(String id) {
+        ImageProcessorTask task = runningTasks.get(id);
+        if (task != null) {
+            task.cancel();
+            boolean removed = executor.remove(task);
+            repository.updateStatus(id, "CANCELLATION_REQUESTED", null);
+            logger.info("Cancellation requested for {} removedFromQueue={}", id, removed);
+            return true;
+        }
+        return false;
+    }
+}
