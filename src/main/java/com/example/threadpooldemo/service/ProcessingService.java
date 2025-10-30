@@ -1,5 +1,6 @@
 package com.example.threadpooldemo.service;
 
+import com.example.threadpooldemo.config.RetryConfig;
 import com.example.threadpooldemo.dto.TaskStatusDto;
 import com.example.threadpooldemo.model.TaskRequest;
 import com.example.threadpooldemo.processor.ImageProcessorTask;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -20,12 +22,14 @@ public class ProcessingService {
 
     private final ThreadPoolExecutor executor;
     private final TaskRepository repository;
+    private final RetryConfig retryConfig;
     private final Map<String, ImageProcessorTask> runningTasks = new ConcurrentHashMap<>();
     private final AtomicInteger idGenerator = new AtomicInteger(0);
 
-    public ProcessingService(ThreadPoolExecutor executor, TaskRepository repository) {
+    public ProcessingService(ThreadPoolExecutor executor, TaskRepository repository, RetryConfig retryConfig) {
         this.executor = executor;
         this.repository = repository;
+        this.retryConfig = retryConfig;
     }
 
     @PostConstruct
@@ -39,10 +43,13 @@ public class ProcessingService {
         TaskStatusDto dto = new TaskStatusDto(id, request.getFileName(), "QUEUED", null);
         repository.save(dto);
 
-        ImageProcessorTask task = new ImageProcessorTask(id, request.getFileName(), Math.max(1, request.getComplexity()), repository);
+        ImageProcessorTask task = new ImageProcessorTask(id, request.getFileName(), 
+            request.getComplexity(), repository, 
+            retryConfig.getMaxRetryAttempts(), retryConfig.getRetryDelayMillis());
         runningTasks.put(id, task);
+        
         try {
-            executor.execute(task);
+            submitWithRetry(task);
             logger.info("Submitted task id={} file={} to executor", id, request.getFileName());
         } catch (Exception e) {
             repository.updateStatus(id, "REJECTED", null);
@@ -52,6 +59,38 @@ public class ProcessingService {
         }
         return id;
     }
+
+    private void submitWithRetry(ImageProcessorTask task) {
+        executor.execute(() -> {
+            String threadName = Thread.currentThread().getName();
+            try {
+                while (true) {
+                    try {
+                        task.run();
+                        return; // success
+                    } catch (RuntimeException e) {
+                        if (task.getCurrentAttempt() < task.getMaxRetryAttempts()) {
+                            logger.warn("Retrying task {} after failure (attempt {}/{})", 
+                                task.getId(), task.getCurrentAttempt(), task.getMaxRetryAttempts());
+                            TimeUnit.MILLISECONDS.sleep(task.getRetryDelay());
+                            continue;
+                        } else {
+                            repository.updateStatus(task.getId(), "FAILED_PERMANENTLY", threadName);
+                            logger.error("Task {} exhausted retries and failed permanently", task.getId());
+                            return;
+                        }
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                repository.updateStatus(task.getId(), "INTERRUPTED", threadName);
+            } catch (Exception e) {
+                logger.error("Unexpected error in retry loop for {}: {}", task.getId(), e.getMessage());
+                repository.updateStatus(task.getId(), "FAILED_PERMANENTLY", threadName);
+            }
+        });
+    }
+
 
     public Optional<TaskStatusDto> getStatus(String id) {
         return Optional.ofNullable(repository.find(id));

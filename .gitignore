@@ -1,7 +1,26 @@
+# Maven build
 target/
-*.class
-build/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/wrapper/maven-wrapper.properties
+
+# IntelliJ
 .idea/
 *.iml
+*.iws
+out/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# VS Code
+.vscode/
+
+# Logs
+logs/
 *.log
+
+# OS
 .DS_Store
+Thumbs.db
