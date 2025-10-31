@@ -50,8 +50,20 @@ public class ProcessingServiceConcurrencyTest {
 
     @AfterAll
     public static void tearDown() {
-        executor.shutdownNow();
-        testExecutor.shutdownNow();
+        executor.shutdown();
+        testExecutor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+            if (!testExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                testExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+            testExecutor.shutdownNow();
+        }
     }
 
     @Test
