@@ -1,12 +1,10 @@
 package com.example.threadpooldemo.dto;
 
-public class TaskStatusDto {
-    private String id;
-    private String fileName;
-    private String status;
-    private String assignedThread;
-
-    public TaskStatusDto() {}
+public final class TaskStatusDto {
+    private final String id;
+    private final String fileName;
+    private final String status;
+    private final String assignedThread;
 
     public TaskStatusDto(String id, String fileName, String status, String assignedThread) {
         this.id = id;
@@ -19,31 +17,33 @@ public class TaskStatusDto {
         return id;
     }
 
-    public void setId(String id) {
-        this.id = id;
-    }
-
     public String getFileName() {
         return fileName;
-    }
-
-    public void setFileName(String fileName) {
-        this.fileName = fileName;
     }
 
     public String getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
-        this.status = status;
-    }
-
     public String getAssignedThread() {
         return assignedThread;
     }
 
-    public void setAssignedThread(String assignedThread) {
-        this.assignedThread = assignedThread;
+    public TaskStatusDto withStatus(String newStatus) {
+        return new TaskStatusDto(this.id, this.fileName, newStatus, this.assignedThread);
+    }
+
+    public TaskStatusDto withThread(String newThread) {
+        return new TaskStatusDto(this.id, this.fileName, this.status, newThread);
+    }
+
+    public TaskStatusDto withStatusAndThread(String newStatus, String newThread) {
+        return new TaskStatusDto(this.id, this.fileName, newStatus, newThread);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("TaskStatusDto{id='%s', fileName='%s', status='%s', thread='%s'}", 
+            id, fileName, status, assignedThread);
     }
 }

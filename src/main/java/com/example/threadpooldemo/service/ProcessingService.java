@@ -46,16 +46,24 @@ public class ProcessingService {
         ImageProcessorTask task = new ImageProcessorTask(id, request.getFileName(), 
             request.getComplexity(), repository, 
             retryConfig.getMaxRetryAttempts(), retryConfig.getRetryDelayMillis());
-        runningTasks.put(id, task);
         
-        try {
-            submitWithRetry(task);
-            logger.info("Submitted task id={} file={} to executor", id, request.getFileName());
-        } catch (Exception e) {
-            repository.updateStatus(id, "REJECTED", null);
-            runningTasks.remove(id);
-            logger.error("Failed to submit task {}: {}", id, e.getMessage(), e);
-            throw e;
+        // Add to running tasks only if initial save was successful
+        if (!runningTasks.containsKey(id)) {
+            runningTasks.put(id, task);
+            try {
+                submitWithRetry(task);
+                logger.info("Submitted task id={} file={} to executor", id, request.getFileName());
+            } catch (Exception e) {
+                // Atomic update with expected status check
+                if (repository.compareAndUpdateStatus(id, "QUEUED", "REJECTED", null)) {
+                    runningTasks.remove(id);
+                    logger.error("Failed to submit task {}: {}", id, e.getMessage(), e);
+                    throw e;
+                }
+            }
+        } else {
+            logger.error("Task ID collision detected for {}", id);
+            throw new IllegalStateException("Task ID collision");
         }
         return id;
     }
