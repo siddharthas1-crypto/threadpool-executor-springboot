@@ -6,6 +6,7 @@ import com.example.threadpooldemo.model.TaskRequest;
 import com.example.threadpooldemo.processor.ImageProcessorTask;
 import com.example.threadpooldemo.repository.TaskRepository;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -118,5 +119,25 @@ public class ProcessingService {
             return true;
         }
         return false;
+    }
+
+    @PreDestroy
+    public void shutdownExecutor() {
+        logger.info("ProcessingService shutting down executor...");
+        try {
+            // request an orderly shutdown
+            executor.shutdown();
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                logger.warn("Executor did not terminate within timeout; forcing shutdownNow()");
+                executor.shutdownNow();
+                executor.awaitTermination(2, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            executor.shutdownNow();
+        } catch (Exception e) {
+            logger.error("Error while shutting down executor: {}", e.getMessage(), e);
+        }
+        logger.info("ProcessingService executor shutdown complete");
     }
 }
