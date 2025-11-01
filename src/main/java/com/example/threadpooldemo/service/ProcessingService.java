@@ -4,7 +4,7 @@ import com.example.threadpooldemo.config.RetryConfig;
 import com.example.threadpooldemo.dto.TaskStatusDto;
 import com.example.threadpooldemo.model.TaskRequest;
 import com.example.threadpooldemo.processor.ImageProcessorTask;
-import com.example.threadpooldemo.repository.TaskRepository;
+import com.example.threadpooldemo.repository.TaskRepositoryPort;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -22,12 +22,12 @@ public class ProcessingService {
     private static final Logger logger = LoggerFactory.getLogger(ProcessingService.class);
 
     private final ThreadPoolExecutor executor;
-    private final TaskRepository repository;
+    private final TaskRepositoryPort repository;
     private final RetryConfig retryConfig;
     private final Map<String, ImageProcessorTask> runningTasks = new ConcurrentHashMap<>();
     private final AtomicInteger idGenerator = new AtomicInteger(0);
 
-    public ProcessingService(ThreadPoolExecutor executor, TaskRepository repository, RetryConfig retryConfig) {
+    public ProcessingService(ThreadPoolExecutor executor, TaskRepositoryPort repository, RetryConfig retryConfig) {
         this.executor = executor;
         this.repository = repository;
         this.retryConfig = retryConfig;

@@ -3,20 +3,27 @@ package com.example.threadpooldemo.repository;
 import com.example.threadpooldemo.dto.TaskStatusDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * In-memory repository implementation.
+ * This bean is active when property app.persistence.enabled is not true (default false).
+ */
 @Repository
-public class TaskRepository {
+@ConditionalOnProperty(prefix = "app.persistence", name = "enabled", havingValue = "false", matchIfMissing = true)
+public class TaskRepository implements TaskRepositoryPort {
     private static final Logger logger = LoggerFactory.getLogger(TaskRepository.class);
     private final Map<String, TaskStatusDto> store = new ConcurrentHashMap<>();
 
     /**
      * Atomically saves a new task status.
      */
+    @Override
     public void save(TaskStatusDto dto) {
         TaskStatusDto existing = store.putIfAbsent(dto.getId(), dto);
         if (existing != null) {
@@ -28,6 +35,7 @@ public class TaskRepository {
     /**
      * Returns the current task status, or null if not found.
      */
+    @Override
     public TaskStatusDto find(String id) {
         return store.get(id);
     }
@@ -35,6 +43,7 @@ public class TaskRepository {
     /**
      * Returns an immutable snapshot of all task statuses.
      */
+    @Override
     public Collection<TaskStatusDto> findAll() {
         return store.values();
     }
@@ -43,6 +52,7 @@ public class TaskRepository {
      * Atomically updates task status. Uses compute() to ensure atomic read-modify-write.
      * Returns true if the status was updated, false if the task was not found.
      */
+    @Override
     public boolean updateStatus(String id, String status, String threadName) {
         TaskStatusDto updated = store.compute(id, (key, existing) -> {
             if (existing == null) {
@@ -59,9 +69,13 @@ public class TaskRepository {
      * Returns true if the status was updated, false if either the task was not found
      * or the expected status did not match.
      */
+    @Override
     public boolean compareAndUpdateStatus(String id, String expectedStatus, String newStatus, String threadName) {
-        return store.replace(id, 
-            new TaskStatusDto(id, find(id).getFileName(), expectedStatus, find(id).getAssignedThread()),
-            new TaskStatusDto(id, find(id).getFileName(), newStatus, threadName));
+        TaskStatusDto current = find(id);
+        if (current == null || !expectedStatus.equals(current.getStatus())) {
+            return false;
+        }
+        TaskStatusDto updated = new TaskStatusDto(id, current.getFileName(), newStatus, threadName);
+        return store.replace(id, current, updated);
     }
 }
