@@ -129,22 +129,31 @@ public class ProcessingService {
             // mark the logical task as cancelled
             handle.getTask().cancel();
             boolean removedFromQueue = false;
+
             // attempt to remove the wrapper from the executor queue
             Runnable wrapper = handle.getWrapper();
             if (wrapper != null) {
                 removedFromQueue = executor.remove(wrapper);
             }
+
             // also cancel the future to prevent execution or interrupt if running
             java.util.concurrent.Future<?> f = handle.getFuture();
             if (f != null) {
                 f.cancel(true);
             }
+
+            // update repository
             repository.updateStatus(id, "CANCELLATION_REQUESTED", null);
             logger.info("Cancellation requested for {} removedFromQueue={}", id, removedFromQueue);
+
+            // ✅ Remove from running task registry (fix for test failure)
+            runningTasks.remove(id);
+
             return true;
         }
         return false;
     }
+
 
     /**
      * Expose running task ids for tests/monitoring to detect leaks.
