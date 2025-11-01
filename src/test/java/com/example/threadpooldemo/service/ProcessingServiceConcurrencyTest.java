@@ -66,49 +66,49 @@ public class ProcessingServiceConcurrencyTest {
         }
     }
 
-    // @Test
-    // public void testConcurrentTaskSubmission() throws Exception {
-    //     int numTasks = 100;
-    //     Set<String> allIds = ConcurrentHashMap.newKeySet();
-    //     List<CompletableFuture<Void>> futures = new ArrayList<>();
+    @Test
+    public void testConcurrentTaskSubmission() throws Exception {
+        int numTasks = 100;
+        Set<String> allIds = ConcurrentHashMap.newKeySet();
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-    //     // Submit tasks concurrently
-    //     for (int i = 0; i < numTasks; i++) {
-    //         int complexity = 1 + (i % 3); // Vary complexity between 1-3
-    //         CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-    //             String id = service.submit(new TaskRequest("test.jpg", complexity));
-    //             assertTrue(allIds.add(id), "Duplicate task ID detected: " + id);
-    //         }, testExecutor);
-    //         futures.add(future);
-    //     }
+        // Submit tasks concurrently
+        for (int i = 0; i < numTasks; i++) {
+            int complexity = 1 + (i % 3); // Vary complexity between 1-3
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                String id = service.submit(new TaskRequest("test.jpg", complexity));
+                assertTrue(allIds.add(id), "Duplicate task ID detected: " + id);
+            }, testExecutor);
+            futures.add(future);
+        }
 
-    //     // Wait for all submissions to complete
-    //     CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(10, TimeUnit.SECONDS);
+        // Wait for all submissions to complete
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(10, TimeUnit.SECONDS);
 
-    //     // Verify unique IDs
-    //     assertEquals(numTasks, allIds.size(), "Expected unique task IDs");
+        // Verify unique IDs
+        assertEquals(numTasks, allIds.size(), "Expected unique task IDs");
 
-    //     // Wait for all tasks to complete or fail
-    //     Awaitility.await()
-    //         .atMost(Duration.ofSeconds(30))
-    //         .pollInterval(Duration.ofMillis(100))
-    //         .until(() -> repository.findAll().stream()
-    //             .map(TaskStatusDto::getStatus)
-    //             .allMatch(status -> Set.of("COMPLETED", "FAILED_PERMANENTLY").contains(status)));
+        // Wait for all tasks to complete or fail
+        Awaitility.await()
+            .atMost(Duration.ofSeconds(30))
+            .pollInterval(Duration.ofMillis(100))
+            .until(() -> repository.findAll().stream()
+                .map(TaskStatusDto::getStatus)
+                .allMatch(status -> Set.of("COMPLETED", "FAILED_PERMANENTLY").contains(status)));
 
-    //     // Verify final states
-    //     Collection<TaskStatusDto> results = repository.findAll();
-    //     assertEquals(numTasks, results.size(), "All tasks should be tracked");
+        // Verify final states
+        Collection<TaskStatusDto> results = repository.findAll();
+        assertEquals(numTasks, results.size(), "All tasks should be tracked");
 
-    //     // Count final states
-    //     Map<String, Long> statusCounts = results.stream()
-    //         .collect(Collectors.groupingBy(TaskStatusDto::getStatus, Collectors.counting()));
+        // Count final states
+        Map<String, Long> statusCounts = results.stream()
+            .collect(Collectors.groupingBy(TaskStatusDto::getStatus, Collectors.counting()));
         
-    //     System.out.println("Final status counts: " + statusCounts);
+        System.out.println("Final status counts: " + statusCounts);
         
-    //     assertTrue(statusCounts.getOrDefault("COMPLETED", 0L) > 0, 
-    //         "Some tasks should complete successfully");
-    // }
+        assertTrue(statusCounts.getOrDefault("COMPLETED", 0L) > 0, 
+            "Some tasks should complete successfully");
+    }
 
     @Test
     public void testConcurrentStatusUpdates() throws Exception {
