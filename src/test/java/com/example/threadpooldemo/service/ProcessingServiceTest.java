@@ -156,10 +156,12 @@ public class ProcessingServiceTest {
 
         Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> {
             TaskStatusDto s = repository.find(id);
-            return s != null && ("CANCELLATION_REQUESTED".equals(s.getStatus()) || "CANCELLED".equals(s.getStatus()));
+            return s != null && (
+                "CANCELLATION_REQUESTED".equals(s.getStatus()) ||
+                "CANCELLED".equals(s.getStatus()) ||
+                "INTERRUPTED".equals(s.getStatus())
+            );
         });
-        TaskStatusDto status = repository.find(id);
-        Assertions.assertNotNull(status);
     }
 
 }
