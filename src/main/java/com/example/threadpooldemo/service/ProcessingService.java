@@ -24,7 +24,7 @@ public class ProcessingService {
     private final ThreadPoolExecutor executor;
     private final TaskRepositoryPort repository;
     private final RetryConfig retryConfig;
-    private final Map<String, ImageProcessorTask> runningTasks = new ConcurrentHashMap<>();
+    private final Map<String, TaskHandle> runningTasks = new ConcurrentHashMap<>();
     private final AtomicInteger idGenerator = new AtomicInteger(0);
 
     public ProcessingService(ThreadPoolExecutor executor, TaskRepositoryPort repository, RetryConfig retryConfig) {
@@ -47,30 +47,18 @@ public class ProcessingService {
         ImageProcessorTask task = new ImageProcessorTask(id, request.getFileName(), 
             request.getComplexity(), repository, 
             retryConfig.getMaxRetryAttempts(), retryConfig.getRetryDelayMillis());
-        
-        // Add to running tasks only if initial save was successful
-        if (!runningTasks.containsKey(id)) {
-            runningTasks.put(id, task);
-            try {
-                submitWithRetry(task);
-                logger.info("Submitted task id={} file={} to executor", id, request.getFileName());
-            } catch (Exception e) {
-                // Atomic update with expected status check
-                if (repository.compareAndUpdateStatus(id, "QUEUED", "REJECTED", null)) {
-                    runningTasks.remove(id);
-                    logger.error("Failed to submit task {}: {}", id, e.getMessage(), e);
-                    throw e;
-                }
-            }
-        } else {
+        // Add to running tasks only if initial save was successful.
+        if (runningTasks.containsKey(id)) {
             logger.error("Task ID collision detected for {}", id);
             throw new IllegalStateException("Task ID collision");
         }
-        return id;
-    }
 
-    private void submitWithRetry(ImageProcessorTask task) {
-        executor.execute(() -> {
+        // Create a TaskHandle placeholder so cancel() can see the task immediately.
+        TaskHandle handle = new TaskHandle(task);
+        runningTasks.put(id, handle);
+
+        // Build the wrapper runnable that performs the retry loop and ensures cleanup.
+        Runnable wrapper = () -> {
             String threadName = Thread.currentThread().getName();
             try {
                 while (true) {
@@ -80,8 +68,14 @@ public class ProcessingService {
                     } catch (RuntimeException e) {
                         if (task.getCurrentAttempt() < task.getMaxRetryAttempts()) {
                             logger.warn("Retrying task {} after failure (attempt {}/{})", 
-                                task.getId(), task.getCurrentAttempt(), task.getMaxRetryAttempts());
-                            TimeUnit.MILLISECONDS.sleep(task.getRetryDelay());
+                                    task.getId(), task.getCurrentAttempt(), task.getMaxRetryAttempts());
+                            try {
+                                TimeUnit.MILLISECONDS.sleep(task.getRetryDelay());
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                repository.updateStatus(task.getId(), "INTERRUPTED", threadName);
+                                return;
+                            }
                             continue;
                         } else {
                             repository.updateStatus(task.getId(), "FAILED_PERMANENTLY", threadName);
@@ -90,15 +84,35 @@ public class ProcessingService {
                         }
                     }
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                repository.updateStatus(task.getId(), "INTERRUPTED", threadName);
             } catch (Exception e) {
                 logger.error("Unexpected error in retry loop for {}: {}", task.getId(), e.getMessage());
                 repository.updateStatus(task.getId(), "FAILED_PERMANENTLY", threadName);
+            } finally {
+                // Ensure we don't leak memory by removing the handle when done
+                runningTasks.remove(task.getId());
             }
-        });
+        };
+
+        // Store wrapper in handle (useful for removal from queue if needed)
+        handle.setWrapper(wrapper);
+
+        try {
+            // submit returns a Future; keep it so cancel() can cancel queued or running tasks
+            java.util.concurrent.Future<?> f = executor.submit(wrapper);
+            handle.setFuture(f);
+            logger.info("Submitted task id={} file={} to executor", id, request.getFileName());
+        } catch (RuntimeException e) {
+            // Submission failed - remove placeholder and mark as rejected
+            runningTasks.remove(id);
+            if (repository.compareAndUpdateStatus(id, "QUEUED", "REJECTED", null)) {
+                logger.error("Failed to submit task {}: {}", id, e.getMessage(), e);
+            }
+            throw e;
+        }
+        return id;
     }
+
+
 
 
     public Optional<TaskStatusDto> getStatus(String id) {
@@ -110,15 +124,54 @@ public class ProcessingService {
     }
 
     public boolean cancel(String id) {
-        ImageProcessorTask task = runningTasks.get(id);
-        if (task != null) {
-            task.cancel();
-            boolean removed = executor.remove(task);
+        TaskHandle handle = runningTasks.get(id);
+        if (handle != null) {
+            // mark the logical task as cancelled
+            handle.getTask().cancel();
+            boolean removedFromQueue = false;
+            // attempt to remove the wrapper from the executor queue
+            Runnable wrapper = handle.getWrapper();
+            if (wrapper != null) {
+                removedFromQueue = executor.remove(wrapper);
+            }
+            // also cancel the future to prevent execution or interrupt if running
+            java.util.concurrent.Future<?> f = handle.getFuture();
+            if (f != null) {
+                f.cancel(true);
+            }
             repository.updateStatus(id, "CANCELLATION_REQUESTED", null);
-            logger.info("Cancellation requested for {} removedFromQueue={}", id, removed);
+            logger.info("Cancellation requested for {} removedFromQueue={}", id, removedFromQueue);
             return true;
         }
         return false;
+    }
+
+    /**
+     * Expose running task ids for tests/monitoring to detect leaks.
+     */
+    public Set<String> getRunningTaskIds() {
+        return Collections.unmodifiableSet(runningTasks.keySet());
+    }
+
+    /**
+     * Simple holder describing a task that has been submitted to the executor.
+     * Holds the logical task, the wrapper Runnable used for submission and the
+     * Future returned by the executor so we can cancel/remove it later.
+     */
+    private static class TaskHandle {
+        private final ImageProcessorTask task;
+        private Runnable wrapper;
+        private java.util.concurrent.Future<?> future;
+
+        TaskHandle(ImageProcessorTask task) {
+            this.task = task;
+        }
+
+        public ImageProcessorTask getTask() { return task; }
+        public Runnable getWrapper() { return wrapper; }
+        public void setWrapper(Runnable wrapper) { this.wrapper = wrapper; }
+        public java.util.concurrent.Future<?> getFuture() { return future; }
+        public void setFuture(java.util.concurrent.Future<?> future) { this.future = future; }
     }
 
     @PreDestroy
