@@ -1,6 +1,6 @@
 package com.example.threadpooldemo.processor;
 
-import com.example.threadpooldemo.repository.TaskRepository;
+import com.example.threadpooldemo.repository.TaskRepositoryPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,13 +10,13 @@ public class ImageProcessorTask implements Runnable {
     private final String id;
     private final String fileName;
     private final int complexity;
-    private final TaskRepository repository;
+    private final TaskRepositoryPort repository;
     private final int maxRetryAttempts;
     private final long retryDelayMillis;
     private volatile boolean cancelled = false;
     private int currentAttempt = 1;
 
-    public ImageProcessorTask(String id, String fileName, int complexity, TaskRepository repository, 
+    public ImageProcessorTask(String id, String fileName, int complexity, TaskRepositoryPort repository, 
                             int maxRetryAttempts, long retryDelayMillis) {
         this.id = id;
         this.fileName = fileName;
